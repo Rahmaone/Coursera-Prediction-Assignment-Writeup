@@ -1,0 +1,99 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Raka Indra Rahmawan"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+This report aims to predict the manner in which exercises were performed based on sensor data. The target variable is `classe`.
+
+## Data Loading and Preprocessing
+
+```{r}
+library(caret)
+library(ggplot2)
+library(dplyr)
+
+# Load Data
+train_data <- read.csv("pml-training.csv", na.strings = c("NA", "", "#DIV/0!"))
+test_data <- read.csv("pml-testing.csv", na.strings = c("NA", "", "#DIV/0!"))
+
+# Remove near-zero variance predictors
+nzv <- nearZeroVar(train_data, saveMetrics=TRUE)
+train_data <- train_data[, !nzv$nzv]
+
+# Remove columns with too many missing values
+train_data <- train_data[, colSums(is.na(train_data)) < nrow(train_data) * 0.6]
+
+# Remove identifier columns
+train_data <- train_data[, -c(1:6)]
+
+# Ensure the target variable 'classe' is not removed
+classe_column <- "classe"
+common_columns <- intersect(colnames(train_data), colnames(test_data))
+common_columns <- unique(c(common_columns, classe_column)) # Ensure 'classe' is retained
+
+train_data <- train_data[, common_columns]
+test_data <- test_data[, setdiff(common_columns, classe_column)]  # Test data has no 'classe'
+```
+
+## Model Training and Cross-Validation
+
+```{r}
+set.seed(123)
+train_index <- createDataPartition(train_data$classe, p = 0.7, list = FALSE)
+train_set <- train_data[train_index, ]
+test_set <- train_data[-train_index, ]
+
+model <- train(classe ~ ., data = train_set, method = "rf", trControl = trainControl(method = "cv", number = 5))
+
+print(model)
+```
+
+## Model Evaluation
+
+```{r}
+predictions <- predict(model, test_set)
+
+# Check for NA values in predictions
+if (any(is.na(predictions))) {
+  most_frequent_class <- names(sort(table(test_set$classe), decreasing = TRUE))[1]
+  predictions[is.na(predictions)] <- most_frequent_class
+}
+
+# Ensure both predictions and test labels have common levels
+common_levels <- unique(c(levels(factor(predictions)), levels(factor(test_set$classe))))
+predictions <- factor(predictions, levels = common_levels)
+test_set$classe <- factor(test_set$classe, levels = common_levels)
+
+# Compute the confusion matrix
+conf_matrix <- confusionMatrix(predictions, test_set$classe)
+print(conf_matrix)
+```
+
+## Prediction on New Test Data
+
+```{r}
+test_predictions <- predict(model, test_data)
+
+test_predictions
+```
+
+## Debugging
+
+```{r}
+# Check Unique Levels of Both Factors
+predictions <- factor(predictions)
+test_set$classe <- factor(test_set$classe)
+
+str(predictions)
+str(test_set$classe)
+
+# Check distribution
+table(predictions, useNA = "ifany")
+table(test_set$classe, useNA = "ifany")

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Prediction Assignment Writeup Report</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 1000px;
+            margin: auto;
+            padding: 20px;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 0px 10px;
+            border-radius: 5px;
+            min-height: auto;
+            max-height: 300px;
+            overflow-y: auto; 
+        }
+        pre code {
+            display: block;
+            background: #f4f4f4;
+            padding: 0px 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            overflow-x: auto;
+        }
+
+    </style>
+</head>
+<body>
+    <h1>Exercise Classification Report</h1>
+    <h2>Introduction</h2>
+    <p>This report describes the process of building a predictive model to classify exercise movements based on sensor data. The objective is to accurately predict the manner in which exercises were performed, denoted by the target variable <code>classe</code>. The dataset consists of various measurements collected from wearable sensors, with different categories corresponding to specific exercise movements.</p>
+    
+    <h2>Data Preparation and Preprocessing</h2>
+    <p>The dataset was loaded from CSV files, with missing values identified using placeholders such as <code>NA</code>, empty strings, and <code>#DIV/0!</code>. Preprocessing steps included:</p>
+    <ul>
+        <li><strong>Removing near-zero variance predictors</strong>: Features with almost no variability across samples were eliminated.</li>
+        <li><strong>Handling missing values</strong>: Columns with more than 60% missing values were removed.</li>
+        <li><strong>Removing identifier columns</strong>: Metadata fields like user IDs and timestamps were excluded.</li>
+        <li><strong>Ensuring consistency across datasets</strong>: Only common feature columns were retained.</li>
+    </ul>
+    
+    <pre>
+        <code>```{r}
+library(caret)
+library(ggplot2)
+library(dplyr)
+
+# Load Data
+train_data <- read.csv("pml-training.csv", na.strings = c("NA", "", "#DIV/0!"))
+test_data <- read.csv("pml-testing.csv", na.strings = c("NA", "", "#DIV/0!"))
+
+# Remove near-zero variance predictors
+nzv <- nearZeroVar(train_data, saveMetrics=TRUE)
+train_data <- train_data[, !nzv$nzv]
+
+# Remove columns with too many missing values
+train_data <- train_data[, colSums(is.na(train_data)) < nrow(train_data) * 0.6]
+
+# Remove identifier columns
+train_data <- train_data[, -c(1:6)]
+
+# Ensure the target variable 'classe' is not removed
+classe_column <- "classe"
+common_columns <- intersect(colnames(train_data), colnames(test_data))
+common_columns <- unique(c(common_columns, classe_column)) # Ensure 'classe' is retained
+
+train_data <- train_data[, common_columns]
+test_data <- test_data[, setdiff(common_columns, classe_column)]  # Test data has no 'classe'
+```</code>
+    </pre>
+    
+    <h2>Model Training and Cross-Validation</h2>
+    <p>The dataset was split into training and validation subsets using stratified sampling (70% training, 30% validation). A <strong>Random Forest</strong> model was chosen for classification due to its robustness and ability to handle high-dimensional data. To prevent overfitting, <strong>5-fold cross-validation</strong> was applied.</p>
+    
+    <pre>
+        <code>```{r}
+set.seed(123)
+train_index <- createDataPartition(train_data$classe, p = 0.7, list = FALSE)
+train_set <- train_data[train_index, ]
+test_set <- train_data[-train_index, ]
+
+model <- train(classe ~ ., data = train_set, method = "rf", trControl = trainControl(method = "cv", number = 5))
+
+print(model)
+```</code>
+    </pre>
+
+    <h2>Model Evaluation</h2>
+    <p>After training, predictions were generated for the validation set. Some missing values (<code>NA</code>) appeared, which were replaced with the most frequent class. Factor levels were also aligned before computing the <strong>confusion matrix</strong>, which provided accuracy and other key performance metrics.</p>
+    
+    <pre>
+        <code>```{r}
+predictions <- predict(model, test_set)
+
+# Check for NA values in predictions
+if (any(is.na(predictions))) {
+    most_frequent_class <- names(sort(table(test_set$classe), decreasing = TRUE))[1]
+    predictions[is.na(predictions)] <- most_frequent_class
+}
+
+# Ensure both predictions and test labels have common levels
+common_levels <- unique(c(levels(factor(predictions)), levels(factor(test_set$classe))))
+predictions <- factor(predictions, levels = common_levels)
+test_set$classe <- factor(test_set$classe, levels = common_levels)
+
+# Compute the confusion matrix
+conf_matrix <- confusionMatrix(predictions, test_set$classe)
+print(conf_matrix)
+```</code>
+    </pre>
+
+    <h2>Prediction on New Test Data</h2>
+    <p>Predictions were generated for a separate test dataset containing new observations. This simulates real-world application, where unseen data must be classified based on learned patterns.</p>
+    
+    <pre>
+        <code>```{r}
+test_predictions <- predict(model, test_data)
+
+test_predictions
+```</code>
+    </pre>
+
+    <h2>Expected Out-of-Sample Error</h2>
+    <p>The expected out-of-sample error is primarily estimated through cross-validation. Given the robustness of the model, the accuracy on unseen data is expected to remain high. Potential sources of error include:</p>
+    <ul>
+        <li><strong>Feature mismatch</strong>: New data may contain unseen sensor readings.</li>
+        <li><strong>Class imbalance</strong>: Less frequent exercise types may be harder to predict.</li>
+        <li><strong>Noisy or missing data</strong>: Real-world data may introduce new challenges.</li>
+    </ul>
+    
+    <h2>Justification for Model Choices</h2>
+    <ul>
+        <li><strong>Choice of Algorithm</strong>: Random Forest was selected for its strong classification performance and feature selection capabilities.</li>
+        <li><strong>Cross-Validation Strategy</strong>: 5-fold cross-validation ensures model generalizability.</li>
+        <li><strong>Handling Missing Values</strong>: Columns with excessive missing data were removed to maintain dataset integrity.</li>
+        <li><strong>Class Imbalance Handling</strong>: Stratified sampling preserved class distributions.</li>
+    </ul>
+    
+    <h2>Conclusion</h2>
+    <p>The final model successfully classifies exercise movements with high accuracy. The use of Random Forest, combined with rigorous preprocessing and cross-validation, ensures a strong generalization capability. While the expected out-of-sample error is minimal, further refinements such as hyperparameter tuning and alternative models could enhance performance.</p>
+    <br>
+    <p>For more details on the dataset used, please refer to the original paper below</p>
+    <ul>
+        <li><a href="http:/groupware.les.inf.puc-rio.br/har#ixzz4TjrkPY4B">Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.</a></li>
+    </ul>
+</body>
+</html>
